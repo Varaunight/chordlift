@@ -1,0 +1,13 @@
+flask
+flask-login
+flask-sqlalchemy
+flask-bcrypt
+basic-pitch
+librosa
+pyacoustid
+musicbrainzngs
+weasyprint
+gunicorn
+python-dotenv
+soundfile
+demucs

@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}History — ChordLift{% endblock %}
+{% block content %}
+<h2 style="margin-bottom:1.5rem;">Your chord sheets</h2>
+{% if tracks %}
+  <table style="width:100%; border-collapse:collapse; font-size:0.9rem;">
+    <thead>
+      <tr style="border-bottom:1px solid #333; color:#777; text-align:left;">
+        <th style="padding:0.5rem 0.75rem;">Song</th>
+        <th style="padding:0.5rem 0.75rem;">Key</th>
+        <th style="padding:0.5rem 0.75rem;">BPM</th>
+        <th style="padding:0.5rem 0.75rem;">Date</th>
+        <th style="padding:0.5rem 0.75rem;"></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for track in tracks %}
+      <tr style="border-bottom:1px solid #1a1a1a;">
+        <td style="padding:0.75rem;">
+          <div style="font-weight:600;">{{ track.detected_title or track.filename }}</div>
+          {% if track.detected_artist %}<div style="color:#777; font-size:0.8rem;">{{ track.detected_artist }}</div>{% endif %}
+        </td>
+        <td style="padding:0.75rem;">{{ track.key or '—' }}</td>
+        <td style="padding:0.75rem;">{{ track.bpm | int if track.bpm else '—' }}</td>
+        <td style="padding:0.75rem; color:#777;">{{ track.created_at.strftime('%b %d, %Y') }}</td>
+        <td style="padding:0.75rem;">
+          <a href="/history/{{ track.id }}" class="btn btn-secondary" style="padding:0.3rem 0.8rem; font-size:0.8rem;">View</a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% else %}
+  <p style="color:#777;">No saved chord sheets yet. Upload an MP3 to get started.</p>
+{% endif %}
+{% endblock %}

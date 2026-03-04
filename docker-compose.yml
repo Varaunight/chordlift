@@ -1,0 +1,15 @@
+version: "3.9"
+
+services:
+  web:
+    build: .
+    ports:
+      - "5000:5000"
+    env_file:
+      - .env
+    volumes:
+      - db-data:/app/instance   # SQLite persistence
+    restart: unless-stopped
+
+volumes:
+  db-data:

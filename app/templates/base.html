@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}ChordLift{% endblock %}</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; background: #0f0f0f; color: #e8e8e8; min-height: 100vh; }
+    nav { display: flex; align-items: center; justify-content: space-between; padding: 1rem 2rem; border-bottom: 1px solid #222; }
+    nav a { color: #e8e8e8; text-decoration: none; font-size: 0.9rem; }
+    nav .logo { font-size: 1.2rem; font-weight: 700; letter-spacing: -0.5px; color: #7c6af7; }
+    nav .nav-links { display: flex; gap: 1.5rem; align-items: center; }
+    .container { max-width: 900px; margin: 0 auto; padding: 2rem; }
+    .flash { padding: 0.75rem 1rem; border-radius: 6px; margin-bottom: 1rem; font-size: 0.9rem; }
+    .flash.error { background: #3b1111; border: 1px solid #7f2020; color: #f87171; }
+    .flash.success { background: #0d2b1e; border: 1px solid #166534; color: #4ade80; }
+    .btn { display: inline-block; padding: 0.6rem 1.4rem; border-radius: 6px; font-size: 0.9rem; font-weight: 600; cursor: pointer; border: none; text-decoration: none; transition: opacity 0.15s; }
+    .btn:hover { opacity: 0.85; }
+    .btn-primary { background: #7c6af7; color: #fff; }
+    .btn-secondary { background: #222; color: #e8e8e8; border: 1px solid #333; }
+    input[type="email"], input[type="password"], input[type="text"] {
+      width: 100%; padding: 0.65rem 0.9rem; background: #1a1a1a; border: 1px solid #333;
+      border-radius: 6px; color: #e8e8e8; font-size: 0.95rem; margin-bottom: 1rem;
+    }
+    input:focus { outline: none; border-color: #7c6af7; }
+    label { display: block; font-size: 0.85rem; color: #999; margin-bottom: 0.3rem; }
+    form h2 { margin-bottom: 1.5rem; font-size: 1.4rem; }
+    .form-footer { margin-top: 1rem; font-size: 0.85rem; color: #777; }
+    .form-footer a { color: #7c6af7; }
+  </style>
+</head>
+<body>
+  <nav>
+    <a href="/" class="logo">ChordLift</a>
+    <div class="nav-links">
+      {% if current_user.is_authenticated %}
+        <a href="/history">History</a>
+        <a href="/logout">Log out</a>
+      {% else %}
+        <a href="/login">Log in</a>
+        <a href="/register" class="btn btn-primary" style="padding:0.4rem 1rem;">Sign up</a>
+      {% endif %}
+    </div>
+  </nav>
+  <div class="container">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for category, message in messages %}
+        <div class="flash {{ category }}">{{ message }}</div>
+      {% endfor %}
+    {% endwith %}
+    {% block content %}{% endblock %}
+  </div>
+</body>
+</html>

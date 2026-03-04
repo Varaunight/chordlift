@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+{% block title %}ChordLift — MP3 Chord Detector{% endblock %}
+{% block content %}
+
+<div id="app">
+
+  <!-- Upload section -->
+  <div id="upload-section">
+    <div id="drop-zone" role="button" tabindex="0" aria-label="Upload MP3 file">
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="color:#7c6af7;margin-bottom:1rem;">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+        <polyline points="17 8 12 3 7 8"/>
+        <line x1="12" y1="3" x2="12" y2="15"/>
+      </svg>
+      <p>Drag &amp; drop an MP3 here, or <span style="color:#7c6af7;cursor:pointer;" id="browse-trigger">browse</span></p>
+      <p style="font-size:0.8rem;color:#555;margin-top:0.4rem;">MP3 only · Max 10MB</p>
+      <input type="file" id="file-input" accept=".mp3" style="display:none;" />
+    </div>
+
+    <div id="file-info" style="display:none; margin-top:1rem; padding:0.75rem 1rem; background:#1a1a1a; border-radius:8px; display:flex; align-items:center; justify-content:space-between;">
+      <span id="file-name" style="font-size:0.9rem;"></span>
+      <span id="file-size" style="font-size:0.8rem;color:#777;"></span>
+    </div>
+
+    <div style="margin-top:1rem; display:flex; align-items:center; gap:0.75rem;">
+      <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;font-size:0.85rem;color:#999;margin:0;">
+        <input type="checkbox" id="separate-vocals" style="width:auto;margin:0;" />
+        Separate instruments before analysis <span style="color:#555;">(slower, may improve accuracy on vocal-heavy tracks)</span>
+      </label>
+    </div>
+
+    <button id="process-btn" class="btn btn-primary" style="margin-top:1.25rem;width:100%;font-size:1rem;padding:0.75rem;" disabled>
+      Detect Chords
+    </button>
+  </div>
+
+  <!-- Progress section -->
+  <div id="progress-section" style="display:none; text-align:center; padding:3rem 0;">
+    <div class="spinner"></div>
+    <p id="progress-stage" style="margin-top:1.5rem;color:#999;font-size:0.9rem;">Processing…</p>
+    <p style="color:#555;font-size:0.8rem;margin-top:0.5rem;">This takes 30–90 seconds for a typical song</p>
+  </div>
+
+  <!-- Results section -->
+  <div id="results-section" style="display:none;">
+
+    <!-- Header -->
+    <div id="chord-header" style="background:#1a1a1a;border-radius:10px;padding:1.25rem 1.5rem;margin-bottom:1.5rem;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:0.5rem;">
+        <div>
+          <div id="result-title" style="font-size:1.3rem;font-weight:700;"></div>
+          <div id="result-artist" style="color:#777;font-size:0.9rem;margin-top:0.2rem;"></div>
+        </div>
+        <div style="display:flex;gap:1.5rem;font-size:0.9rem;">
+          <div><span style="color:#777;">Key</span> <strong id="result-key"></strong></div>
+          <div><span style="color:#777;">BPM</span> <strong id="result-bpm"></strong></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Transpose controls -->
+    <div style="display:flex;align-items:center;gap:1rem;margin-bottom:1rem;flex-wrap:wrap;">
+      <span style="font-size:0.85rem;color:#777;">Transpose:</span>
+      <div style="display:flex;align-items:center;gap:0.5rem;">
+        <button class="btn btn-secondary" id="transpose-down" style="padding:0.3rem 0.8rem;font-size:1rem;" aria-label="Transpose down">−</button>
+        <span id="semitone-display" style="font-size:0.9rem;min-width:60px;text-align:center;">0 st</span>
+        <button class="btn btn-secondary" id="transpose-up" style="padding:0.3rem 0.8rem;font-size:1rem;" aria-label="Transpose up">+</button>
+        <button class="btn btn-secondary" id="transpose-reset" style="padding:0.3rem 0.7rem;font-size:0.8rem;">Reset</button>
+      </div>
+      <div style="margin-left:auto;display:flex;gap:0.5rem;">
+        <button class="btn btn-secondary" id="export-txt" style="font-size:0.85rem;padding:0.4rem 0.9rem;">↓ TXT</button>
+        <button class="btn btn-primary" id="export-pdf" style="font-size:0.85rem;padding:0.4rem 0.9rem;">↓ PDF</button>
+      </div>
+    </div>
+
+    <!-- Chord table -->
+    <div style="overflow-x:auto;">
+      <table id="chord-table" style="width:100%;border-collapse:collapse;font-family:'Courier New',monospace;font-size:0.9rem;">
+        <thead>
+          <tr style="border-bottom:2px solid #333;color:#777;text-align:left;">
+            <th style="padding:0.5rem 0.75rem;">Time</th>
+            <th style="padding:0.5rem 0.75rem;">Standard</th>
+            <th style="padding:0.5rem 0.75rem;">NNS</th>
+          </tr>
+        </thead>
+        <tbody id="chord-tbody"></tbody>
+      </table>
+    </div>
+
+    <button class="btn btn-secondary" id="start-over" style="margin-top:2rem;font-size:0.85rem;">↑ Analyse another track</button>
+  </div>
+
+  <!-- Error section -->
+  <div id="error-section" style="display:none;padding:2rem;text-align:center;">
+    <p id="error-message" style="color:#f87171;"></p>
+    <button class="btn btn-secondary" id="error-retry" style="margin-top:1rem;">Try again</button>
+  </div>
+
+</div>
+
+<!-- Saved track data (for history reload) -->
+{% if saved_track %}
+<script>
+  window.__SAVED_TRACK__ = {
+    title: {{ saved_track.detected_title | tojson }},
+    artist: {{ saved_track.detected_artist | tojson }},
+    key: {{ saved_track.key | tojson }},
+    bpm: {{ saved_track.bpm | tojson }},
+    chords: {{ saved_track.get_chord_data() | tojson }}
+  };
+</script>
+{% endif %}
+
+<script src="/static/main.js"></script>
+
+<style>
+  #drop-zone {
+    border: 2px dashed #333;
+    border-radius: 12px;
+    padding: 3rem 2rem;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+  }
+  #drop-zone:hover, #drop-zone.drag-over {
+    border-color: #7c6af7;
+    background: #12103a;
+  }
+  .spinner {
+    width: 40px; height: 40px;
+    border: 3px solid #333;
+    border-top-color: #7c6af7;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin: 0 auto;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #chord-tbody tr:nth-child(even) { background: #0d0d0d; }
+  #chord-tbody td { padding: 0.45rem 0.75rem; border-bottom: 1px solid #1a1a1a; }
+</style>
+
+{% endblock %}
