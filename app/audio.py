@@ -191,54 +191,92 @@ def _estimate_key(chroma_mean):
 
 
 # ---------------------------------------------------------------------------
-# Step 3 — Chord detection via basic-pitch
+# Step 3 — Chord detection via chroma template matching
 # ---------------------------------------------------------------------------
+
+# Binary chord templates (12-dim, root at index 0)
+# Loaded lazily at first call to avoid numpy import at module level
+_CHROMA_TEMPLATES_RAW = [
+    ("",     [1,0,0,0,1,0,0,1,0,0,0,0]),  # Major
+    ("m",    [1,0,0,1,0,0,0,1,0,0,0,0]),  # Minor
+    ("7",    [1,0,0,0,1,0,0,1,0,0,1,0]),  # Dominant 7
+    ("maj7", [1,0,0,0,1,0,0,1,0,0,0,1]),  # Major 7
+    ("m7",   [1,0,0,1,0,0,0,1,0,0,1,0]),  # Minor 7
+    ("dim",  [1,0,0,1,0,0,1,0,0,0,0,0]),  # Diminished
+    ("sus4", [1,0,0,0,0,1,0,1,0,0,0,0]),  # Sus4
+]
+_CHROMA_TEMPLATES = None  # built on first use
+
 
 def _detect_chords(filepath: str) -> list:
     """
-    Run basic-pitch to get MIDI, then cluster simultaneous notes into chord names.
+    Detect chords using librosa chroma features and chord template matching.
     Returns list of { time_seconds: float, chord: str }.
     """
-    logger.info("basic-pitch: importing model (first run downloads ~100MB)...")
-    from basic_pitch.inference import predict
-    from basic_pitch import ICASSP_2022_MODEL_PATH
+    import librosa
+    import numpy as np
 
-    logger.info("basic-pitch: running inference (slow on CPU)...")
-    t = time.time()
-    model_output, midi_data, note_events = predict(filepath)
-    logger.info("basic-pitch: inference done in %.1fs | note_events=%d", time.time() - t, len(note_events))
+    logger.info("chord detection: loading audio...")
+    y, sr = librosa.load(filepath, sr=None, mono=True)
+    duration = len(y) / sr
+    logger.info("chord detection: %.1fs of audio at %dHz", duration, sr)
 
-    chords = _notes_to_chords(note_events)
-    logger.info("basic-pitch: chord clustering done | chords=%d", len(chords))
+    hop_length = 512
+
+    # CQT chroma with higher octave resolution for better chord accuracy
+    logger.info("chord detection: computing CQT chroma...")
+    chroma = librosa.feature.chroma_cqt(y=y, sr=sr, hop_length=hop_length, bins_per_octave=36)
+
+    # Beat-synchronise chroma so windows align with musical beat boundaries
+    logger.info("chord detection: beat-synchronizing chroma...")
+    _, beats = librosa.beat.beat_track(y=y, sr=sr, hop_length=hop_length)
+    if len(beats) == 0 or beats[0] > 0:
+        beats = np.concatenate([[0], beats])
+
+    chroma_sync = librosa.util.sync(chroma, beats, aggregate=np.median)
+    beat_times = librosa.frames_to_time(beats, sr=sr, hop_length=hop_length)
+
+    logger.info("chord detection: matching %d beat windows...", len(beat_times))
+
+    chords = []
+    prev_chord = None
+    for i, t in enumerate(beat_times):
+        if i >= chroma_sync.shape[1]:
+            break
+        chord_name = _match_chord(chroma_sync[:, i])
+        if chord_name and chord_name != prev_chord:
+            chords.append({"time_seconds": float(t), "chord": chord_name})
+            prev_chord = chord_name
+
+    logger.info("chord detection: done | %d chords from %d beats", len(chords), len(beat_times))
     return chords
 
 
-def _notes_to_chords(note_events) -> list:
-    """
-    Cluster note events into chords by grouping notes with overlapping time windows.
-    Uses a simple beat-grid quantisation: 0.5s windows.
-    """
-    from app.chords import notes_to_chord_name
+def _match_chord(chroma_vec) -> str | None:
+    """Match a 12-element chroma vector to the best chord template."""
+    import numpy as np
+    global _CHROMA_TEMPLATES
 
-    if not note_events:
-        return []
+    # Build numpy arrays on first call
+    if _CHROMA_TEMPLATES is None:
+        _CHROMA_TEMPLATES = [(s, np.array(t, dtype=float)) for s, t in _CHROMA_TEMPLATES_RAW]
 
-    WINDOW = 0.5  # seconds
+    chroma_vec = np.array(chroma_vec, dtype=float)
+    max_val = chroma_vec.max()
+    if max_val < 1e-6:
+        return None
+    chroma_vec = chroma_vec / max_val  # normalise to [0, 1]
 
-    buckets = {}
-    for event in note_events:
-        start = event[0]
-        pitch = int(event[2])
-        bucket_key = round(start / WINDOW) * WINDOW
-        buckets.setdefault(bucket_key, set()).add(pitch % 12)
+    best_score = 0.5   # minimum confidence threshold
+    best_chord = None
 
-    result = []
-    prev_chord = None
-    for t in sorted(buckets):
-        pitch_classes = buckets[t]
-        chord_name = notes_to_chord_name(pitch_classes)
-        if chord_name and chord_name != prev_chord:
-            result.append({"time_seconds": t, "chord": chord_name})
-            prev_chord = chord_name
+    for root in range(12):
+        for suffix, template in _CHROMA_TEMPLATES:
+            t_rolled = np.roll(template, root)
+            n_notes = int(template.sum())
+            score = float(np.dot(chroma_vec, t_rolled)) / n_notes
+            if score > best_score:
+                best_score = score
+                best_chord = _NOTE_NAMES[root] + suffix
 
-    return result
+    return best_chord

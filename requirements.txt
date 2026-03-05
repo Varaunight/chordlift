@@ -2,7 +2,6 @@ flask
 flask-login
 flask-sqlalchemy
 flask-bcrypt
-basic-pitch
 librosa
 pyacoustid
 musicbrainzngs

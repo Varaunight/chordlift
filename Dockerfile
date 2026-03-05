@@ -16,11 +16,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 COPY requirements.txt .
-# Install CPU-only torch first (avoids downloading 2GB CUDA builds)
-RUN pip install --no-cache-dir \
-    torch==2.2.2+cpu \
-    torchaudio==2.2.2+cpu \
-    --extra-index-url https://download.pytorch.org/whl/cpu
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
