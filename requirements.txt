@@ -10,4 +10,3 @@ weasyprint
 gunicorn
 python-dotenv
 soundfile
-demucs
