@@ -58,6 +58,11 @@
       </div>
     </div>
 
+    <!-- Audio player -->
+    <div id="player-wrap" style="display:none; margin-bottom:1.5rem; background:#1a1a1a; border-radius:10px; padding:1rem 1.25rem;">
+      <audio id="audio-player" controls style="width:100%;"></audio>
+    </div>
+
     <!-- Transpose controls -->
     <div style="display:flex;align-items:center;gap:1rem;margin-bottom:1rem;flex-wrap:wrap;">
       <span style="font-size:0.85rem;color:#777;">Transpose:</span>
@@ -137,6 +142,9 @@
   @keyframes spin { to { transform: rotate(360deg); } }
   #chord-tbody tr:nth-child(even) { background: #0d0d0d; }
   #chord-tbody td { padding: 0.45rem 0.75rem; border-bottom: 1px solid #1a1a1a; }
+  #chord-tbody tr.active-chord td { background: #2a1f6e !important; color: #fff; }
+  #chord-tbody tr.active-chord td:first-child { border-left: 3px solid #7c6af7; }
+  audio { accent-color: #7c6af7; }
 </style>
 
 {% endblock %}

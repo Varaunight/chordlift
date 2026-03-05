@@ -16,8 +16,11 @@ main = Blueprint("main", __name__)
 auth = Blueprint("auth", __name__)
 export = Blueprint("export", __name__)
 
-# In-memory job store: { job_id: { status, result, error } }
+# In-memory job store: { job_id: { status, result, error, audio_path } }
 jobs = {}
+
+UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "..", "uploads")
+os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 
 # ---------------------------------------------------------------------------
@@ -40,13 +43,13 @@ def upload():
 
     separate_vocals = request.form.get("separate_vocals") == "true"
 
-    # Save to a temp file
-    tmp = tempfile.NamedTemporaryFile(suffix=".mp3", delete=False)
-    file.save(tmp.name)
-    tmp.close()
-
     job_id = str(uuid.uuid4())
-    jobs[job_id] = {"status": "processing", "stage": "Starting…", "result": None, "error": None}
+
+    # Save MP3 persistently so we can serve it for playback
+    audio_path = os.path.join(UPLOAD_DIR, f"{job_id}.mp3")
+    file.save(audio_path)
+
+    jobs[job_id] = {"status": "processing", "stage": "Starting…", "result": None, "error": None, "audio_path": audio_path}
 
     # Capture user ID now — current_user proxy is not available inside the thread
     user_id = current_user.id if current_user.is_authenticated else None
@@ -54,7 +57,8 @@ def upload():
 
     def run():
         try:
-            result = process_audio(tmp.name, separate_vocals=separate_vocals, job_id=job_id, jobs=jobs)
+            result = process_audio(audio_path, separate_vocals=separate_vocals, job_id=job_id, jobs=jobs)
+            result["audio_url"] = f"/audio/{job_id}"
             jobs[job_id]["status"] = "complete"
             jobs[job_id]["result"] = result
 
@@ -76,11 +80,6 @@ def upload():
         except Exception as e:
             jobs[job_id]["status"] = "error"
             jobs[job_id]["error"] = str(e)
-        finally:
-            try:
-                os.unlink(tmp.name)
-            except OSError:
-                pass
 
     threading.Thread(target=run, daemon=True).start()
     return jsonify({"job_id": job_id, "status": "processing"})
@@ -96,6 +95,18 @@ def status(job_id):
     if job["status"] == "error":
         return jsonify({"status": "error", "message": job["error"]})
     return jsonify({"status": "complete", "result": job["result"]})
+
+
+@main.route("/audio/<job_id>")
+def serve_audio(job_id):
+    # Sanitise job_id — must be a UUID
+    import re
+    if not re.match(r'^[0-9a-f-]{36}$', job_id):
+        abort(404)
+    path = os.path.join(UPLOAD_DIR, f"{job_id}.mp3")
+    if not os.path.exists(path):
+        abort(404)
+    return send_file(path, mimetype="audio/mpeg")
 
 
 @main.route("/history")
