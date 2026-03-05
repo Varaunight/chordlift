@@ -48,6 +48,10 @@ def upload():
     job_id = str(uuid.uuid4())
     jobs[job_id] = {"status": "processing", "stage": "Starting…", "result": None, "error": None}
 
+    # Capture user ID now — current_user proxy is not available inside the thread
+    user_id = current_user.id if current_user.is_authenticated else None
+    original_filename = file.filename
+
     def run():
         try:
             result = process_audio(tmp.name, separate_vocals=separate_vocals, job_id=job_id, jobs=jobs)
@@ -55,18 +59,20 @@ def upload():
             jobs[job_id]["result"] = result
 
             # Save to history if logged in
-            if current_user.is_authenticated:
-                track = Track(
-                    user_id=current_user.id,
-                    filename=file.filename,
-                    detected_title=result.get("title"),
-                    detected_artist=result.get("artist"),
-                    key=result.get("key"),
-                    bpm=result.get("bpm"),
-                )
-                track.set_chord_data(result.get("chords", []))
-                db.session.add(track)
-                db.session.commit()
+            if user_id is not None:
+                from app import create_app
+                with create_app().app_context():
+                    track = Track(
+                        user_id=user_id,
+                        filename=original_filename,
+                        detected_title=result.get("title"),
+                        detected_artist=result.get("artist"),
+                        key=result.get("key"),
+                        bpm=result.get("bpm"),
+                    )
+                    track.set_chord_data(result.get("chords", []))
+                    db.session.add(track)
+                    db.session.commit()
         except Exception as e:
             jobs[job_id]["status"] = "error"
             jobs[job_id]["error"] = str(e)
