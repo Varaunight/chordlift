@@ -13,7 +13,12 @@ import os
 import logging
 import tempfile
 import subprocess
+import time
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
 logger = logging.getLogger(__name__)
 
 
@@ -23,8 +28,12 @@ logger = logging.getLogger(__name__)
 
 def process_audio(filepath: str, *, separate_vocals: bool = False, job_id: str = None, jobs: dict = None) -> dict:
     """Run the full pipeline and return a result dict."""
+    pipeline_start = time.time()
+    file_size_mb = os.path.getsize(filepath) / (1024 * 1024)
+    logger.info("=== Pipeline start | job=%s | file=%.2fMB ===", job_id, file_size_mb)
 
     def update_stage(stage: str):
+        logger.info("[%s] Stage: %s", job_id, stage)
         if job_id and jobs and job_id in jobs:
             jobs[job_id]["stage"] = stage
 
@@ -33,28 +42,40 @@ def process_audio(filepath: str, *, separate_vocals: bool = False, job_id: str =
     # Step 0 — Vocal separation
     if separate_vocals:
         update_stage("Separating instruments…")
+        t = time.time()
         try:
             audio_path = _separate_vocals(filepath)
+            logger.info("Step 0 done in %.1fs", time.time() - t)
         except Exception as e:
-            logger.warning("demucs failed, falling back to original audio: %s", e)
+            logger.warning("demucs failed (%.1fs), falling back: %s", time.time() - t, e)
             audio_path = filepath
 
     # Step 1 — Song identification
     update_stage("Identifying song…")
+    t = time.time()
     title, artist = _identify_song(audio_path)
+    logger.info("Step 1 done in %.1fs | title=%s artist=%s", time.time() - t, title, artist)
 
     # Step 2 — Key + BPM
     update_stage("Detecting key and BPM…")
+    t = time.time()
     key, bpm = _detect_key_bpm(audio_path)
+    logger.info("Step 2 done in %.1fs | key=%s bpm=%.1f", time.time() - t, key, bpm)
 
     # Step 3 — Chord detection
-    update_stage("Detecting chords…")
+    update_stage("Detecting chords… (this is the slow step, ~1–3 min on CPU)")
+    t = time.time()
     raw_chords = _detect_chords(audio_path)
+    logger.info("Step 3 done in %.1fs | raw_chords=%d", time.time() - t, len(raw_chords))
 
     # Step 4 — NNS conversion
     update_stage("Generating chord sheet…")
+    t = time.time()
     from app.chords import build_chord_list
     chords = build_chord_list(raw_chords, key)
+    logger.info("Step 4 done in %.1fs | chords=%d", time.time() - t, len(chords))
+
+    logger.info("=== Pipeline complete in %.1fs ===", time.time() - pipeline_start)
 
     # Clean up demucs output if we made a temp file
     if audio_path != filepath:
@@ -84,7 +105,6 @@ def _separate_vocals(filepath: str) -> str:
         check=True,
         capture_output=True,
     )
-    # demucs outputs to: out_dir/htdemucs/<track_name>/no_vocals.wav
     base = os.path.splitext(os.path.basename(filepath))[0]
     no_vocals = os.path.join(out_dir, "htdemucs", base, "no_vocals.wav")
     if not os.path.exists(no_vocals):
@@ -106,6 +126,7 @@ def _identify_song(filepath: str):
 
         api_key = os.getenv("ACOUSTID_API_KEY", "")
         if not api_key:
+            logger.info("No ACOUSTID_API_KEY set — skipping song identification")
             return None, None
 
         results = acoustid.match(api_key, filepath)
@@ -126,13 +147,16 @@ def _detect_key_bpm(filepath: str):
     import librosa
     import numpy as np
 
+    logger.info("librosa: loading audio...")
     y, sr = librosa.load(filepath, sr=None, mono=True)
+    duration = len(y) / sr
+    logger.info("librosa: loaded %.1fs of audio at %dHz", duration, sr)
 
-    # BPM
+    logger.info("librosa: computing BPM...")
     tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
     bpm = float(tempo)
 
-    # Key estimation via chroma + Krumhansl–Schmuckler profiles
+    logger.info("librosa: computing chroma for key estimation...")
     chroma = librosa.feature.chroma_cqt(y=y, sr=sr)
     chroma_mean = chroma.mean(axis=1)
 
@@ -175,15 +199,17 @@ def _detect_chords(filepath: str) -> list:
     Run basic-pitch to get MIDI, then cluster simultaneous notes into chord names.
     Returns list of { time_seconds: float, chord: str }.
     """
-    import numpy as np
+    logger.info("basic-pitch: importing model (first run downloads ~100MB)...")
     from basic_pitch.inference import predict
     from basic_pitch import ICASSP_2022_MODEL_PATH
 
+    logger.info("basic-pitch: running inference (slow on CPU)...")
+    t = time.time()
     model_output, midi_data, note_events = predict(filepath)
+    logger.info("basic-pitch: inference done in %.1fs | note_events=%d", time.time() - t, len(note_events))
 
-    # note_events: list of (start_time, end_time, pitch, amplitude, ...)
-    # Group notes that overlap in time into chord "frames"
     chords = _notes_to_chords(note_events)
+    logger.info("basic-pitch: chord clustering done | chords=%d", len(chords))
     return chords
 
 
@@ -199,13 +225,12 @@ def _notes_to_chords(note_events) -> list:
 
     WINDOW = 0.5  # seconds
 
-    # Build time-bucketed note groups
     buckets = {}
     for event in note_events:
         start = event[0]
         pitch = int(event[2])
         bucket_key = round(start / WINDOW) * WINDOW
-        buckets.setdefault(bucket_key, set()).add(pitch % 12)  # pitch class only
+        buckets.setdefault(bucket_key, set()).add(pitch % 12)
 
     result = []
     prev_chord = None
